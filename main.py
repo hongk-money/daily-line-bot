@@ -3,35 +3,46 @@ import os
 from datetime import datetime
 import pytz
 from telegram import Update
-from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
+from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8279990526:AAHVP0yJpDjbYxHiVztj5vNajgzWT1nVzZo")
-CHANNEL_ID = int(os.environ.get("CHANNEL_ID", "-1003854660566"))
-ALLOWED_USER = os.environ.get("ALLOWED_USER", "Hongk_in_hk")  # 친구 A 텔레그램 username
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
+CHANNEL_ID = int(os.environ.get("CHANNEL_ID", "0"))
+ALLOWED_USER = os.environ.get("ALLOWED_USER", "").lower()
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
 def get_hkt_time():
     hkt = pytz.timezone("Asia/Hong_Kong")
     now = datetime.now(hkt)
     return now.strftime("%m.%d %H:%M HKT")
 
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "✅ 홍크 라인봇 작동 중\n\n"
+        "사진과 함께 캡션에 BTC 또는 ETH 입력해서 보내주세요."
+    )
+
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    # 허용된 유저만 처리 (봇 주인 or 친구 A)
-    if ALLOWED_USER and user.username not in [ALLOWED_USER, "hongk_in_hk"]:
-        await update.message.reply_text("권한이 없습니다.")
+    username = (user.username or "").lower()
+
+    logger.info(f"사진 수신 - 유저: {username}, ALLOWED: {ALLOWED_USER}")
+
+    if ALLOWED_USER and username != ALLOWED_USER:
+        await update.message.reply_text(f"❌ 권한 없음 (username: {username})")
         return
 
-    photo = update.message.photo[-1]  # 가장 큰 해상도
-    caption = update.message.caption or ""
+    photo = update.message.photo[-1]
+    caption = (update.message.caption or "").lower()
 
-    # 캡션에 BTC/ETH 키워드 감지
-    caption_lower = caption.lower()
-    if "btc" in caption_lower or "bitcoin" in caption_lower:
+    if "btc" in caption or "bitcoin" in caption:
         label = "BTC"
         emoji = "🟡"
-    elif "eth" in caption_lower or "ethereum" in caption_lower:
+    elif "eth" in caption or "ethereum" in caption:
         label = "ETH"
         emoji = "🔵"
     else:
@@ -40,27 +51,28 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     channel_caption = (
         f"{emoji} {label} 주요 라인 | {get_hkt_time()}\n"
-        f"🟠 상단 저항선 · ⬜ 하단 지지선\n"
+        f"🟠 상단 저항선  ·  ⬜ 하단 지지선\n"
         f"─────────────────"
     )
 
-    await context.bot.send_photo(
-        chat_id=CHANNEL_ID,
-        photo=photo.file_id,
-        caption=channel_caption
-    )
-
-    await update.message.reply_text(f"✅ {label} 채널 발송 완료")
-
-async def handle_group_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """그룹에서 봇에게 보낼 때도 처리"""
-    await handle_photo(update, context)
+    try:
+        await context.bot.send_photo(
+            chat_id=CHANNEL_ID,
+            photo=photo.file_id,
+            caption=channel_caption
+        )
+        await update.message.reply_text(f"✅ {label} 채널 발송 완료!")
+        logger.info(f"{label} 채널 발송 성공")
+    except Exception as e:
+        await update.message.reply_text(f"❌ 발송 실패: {str(e)}")
+        logger.error(f"발송 실패: {e}")
 
 def main():
+    logger.info(f"봇 시작 - CHANNEL_ID: {CHANNEL_ID}, ALLOWED_USER: {ALLOWED_USER}")
     app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-    print("봇 시작됨. 사진을 보내면 채널에 자동 발송됩니다.")
-    app.run_polling()
+    app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
     main()
