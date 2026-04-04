@@ -289,12 +289,131 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await processing_msg.edit_text(f"❌ 오류: {str(e)}")
         logger.error(f"오류: {e}")
 
+
+async def delete_record(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    username = (user.username or "").lower()
+    if ALLOWED_USER and username != ALLOWED_USER:
+        await update.message.reply_text("❌ 권한 없음")
+        return
+
+    # /delete BTC 0324
+    args = context.args
+    if len(args) < 2:
+        await update.message.reply_text(
+            "❌ 형식 오류\n\n"
+            "사용법: /delete [코인] [날짜]\n"
+            "예시: /delete BTC 0324\n"
+            "      /delete ETH 0325"
+        )
+        return
+
+    coin = args[0].upper()
+    date_str = args[1]
+
+    # 날짜 파싱 (0324 → 2026-03-24)
+    if len(date_str) == 4:
+        try:
+            hkt = pytz.timezone("Asia/Hong_Kong")
+            year = datetime.now(hkt).year
+            month = int(date_str[:2])
+            day = int(date_str[2:])
+            date = f"{year}-{month:02d}-{day:02d}"
+        except:
+            await update.message.reply_text("❌ 날짜 형식 오류. 예: 0324")
+            return
+    else:
+        await update.message.reply_text("❌ 날짜 형식 오류. 예: 0324")
+        return
+
+    records = load_data()
+    before = len(records)
+    records = [r for r in records if not (r.get("date") == date and r.get("coin") == coin)]
+    after = len(records)
+
+    if before == after:
+        await update.message.reply_text(f"⚠️ {date[5:].replace('-','.')} {coin} 데이터가 없어요.")
+        return
+
+    save_data(records)
+    deleted = before - after
+    await update.message.reply_text(f"✅ {date[5:].replace('-','.')} {coin} 데이터 {deleted}개 삭제 완료")
+
+async def clear_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    username = (user.username or "").lower()
+    if ALLOWED_USER and username != ALLOWED_USER:
+        await update.message.reply_text("❌ 권한 없음")
+        return
+
+    args = context.args
+    if not args or args[0] != "confirm":
+        await update.message.reply_text(
+            "⚠️ 전체 데이터를 삭제하려면 아래 명령어를 입력하세요.\n\n"
+            "/clear confirm"
+        )
+        return
+
+    save_data([])
+    await update.message.reply_text("✅ 전체 데이터 초기화 완료")
+
+async def add_manual(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    username = (user.username or "").lower()
+    if ALLOWED_USER and username != ALLOWED_USER:
+        await update.message.reply_text("❌ 권한 없음")
+        return
+
+    # /add BTC 0324 70107 66786
+    args = context.args
+    if len(args) < 4:
+        await update.message.reply_text(
+            "❌ 형식 오류\n\n"
+            "사용법: /add [코인] [날짜] [상단] [하단]\n"
+            "예시: /add BTC 0324 70107 66786\n"
+            "      /add ETH 0325 2115 1976"
+        )
+        return
+
+    coin = args[0].upper()
+    date_str = args[1]
+    upper = args[2]
+    lower = args[3]
+
+    if len(date_str) == 4:
+        try:
+            hkt = pytz.timezone("Asia/Hong_Kong")
+            year = datetime.now(hkt).year
+            month = int(date_str[:2])
+            day = int(date_str[2:])
+            date = f"{year}-{month:02d}-{day:02d}"
+        except:
+            await update.message.reply_text("❌ 날짜 형식 오류. 예: 0324")
+            return
+    else:
+        await update.message.reply_text("❌ 날짜 형식 오류. 예: 0324")
+        return
+
+    add_record(date, coin, upper, lower)
+    date_display = date[5:].replace("-", ".")
+    emoji = "🟡" if coin == "BTC" else "🔵"
+
+    await update.message.reply_text(
+        f"✅ 수동 입력 저장 완료\n\n"
+        f"{emoji} {coin} | {date_display}\n"
+        f"🟠 상단 {upper}\n"
+        f"⬜ 하단 {lower}"
+    )
+
 def main():
     logger.info(f"봇 시작 - CHANNEL_ID: {CHANNEL_ID}, ALLOWED_USER: {ALLOWED_USER}")
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("excel", send_excel))
     app.add_handler(CommandHandler("data", show_data))
+    app.add_handler(CommandHandler("delete", delete_record))
+    app.add_handler(CommandHandler("clear", clear_all))
+    app.add_handler(CommandHandler("add", add_manual))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.run_polling(drop_pending_updates=True)
 
